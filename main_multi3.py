@@ -18,6 +18,8 @@ import logging
 from comp_classes_reduced import *
 from test_multi import *
 
+# from visualize_results import *
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - main - %(levelname)s - %(message)s')
@@ -28,7 +30,7 @@ stream_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
-num_opt_var = 24
+num_opt_var = 18
 UPmin_CHP = 10
 DNmin_CHP = 2
 
@@ -50,7 +52,7 @@ n_CHP = 0.41
 min_cap_CHP = 0.42
 solar_area = 25700
 tot = 0
-delta = 0.04
+delta = 0.06
 
 exp_list, imp_list, hub_list = initTranlist(num_hubs)
 
@@ -61,7 +63,7 @@ start_time = dt.datetime(2018, 1, 1)
 
 if __name__ == '__main__':
 
-
+    comp_start = time.perf_counter()
 
     capacities_conv, capacities_stor, tech_details, storage_details = import_capacities()
     network_cap = network_capacities()
@@ -80,8 +82,6 @@ if __name__ == '__main__':
     def main_optimize(elec_storage, battery_depth, thermal_storage, CHP_Runtime, CHP_Downtime, capacities_conv,
                       capacities_stor, tech_details, storage_details, network_cap, list_techs, list_storage, lagran_P,
                       z_list_P, p_avg, lagran_H, z_list_H, h_avg, time_now):
-
-        comp_start = time.perf_counter()
 
         cond = True
         iter = 0
@@ -448,6 +448,7 @@ if __name__ == '__main__':
                         heat_list.append(comp_list[it].Q_GB)
 
                         for t in range(num_opt_var):
+
                             cost += comp_list[it].C_GB[t]
                             constr += [comp_list[it].Q_GB[t] <= comp_list[it].b_GB[t] * Qmax_GB,
                                        comp_list[it].Q_GB[t] >= comp_list[it].b_GB[t] * Qmin_GB,
@@ -642,21 +643,22 @@ if __name__ == '__main__':
                 demand_power.append(P_Demand[0])
                 demand_heat.append(Q_Demand[0])
 
+                # Solve with mosek or Gurobi
                 problem = cp.Problem(cp.Minimize(cost), constr)
+                problem.solve(solver=cp.MOSEK, verbose=True, save_file='opt_diagnosis.opf',
+                              mosek_params={mosek.dparam.optimizer_max_time: 500.0})
 
-                # problem.solve(solver=cp.MOSEK, verbose=True, save_file='opt_diagnosis.opf',
-                #               mosek_params={mosek.dparam.optimizer_max_time: 500.0})
-
-                problem.solve(solver=cp.GUROBI, verbose=True)
                 opt_stat = problem.status
                 opt_val = problem.value
-
+                opt_time = problem.solver_stats
                 print(f"Status:{opt_stat}, with Value:{opt_val:.2f}")
 
-                # if opt_stat == 'infeasible':
-                #     problem.solve(solver=cp.MOSEK, verbose=True, save_file='opt_diagnosis.opf',
-                #                   mosek_params={mosek.iparam.intpnt_solve_form: mosek.solveform.dual,
-                #                                 mosek.dparam.optimizer_max_time: 100.0})
+                if opt_stat == 'infeasible':
+                    problem = cp.Problem(cp.Minimize(cost), constr)
+                    problem.solve(solver=cp.MOSEK, verbose=True, save_file='opt_diagnosis.opf',
+                                  mosek_params={mosek.iparam.intpnt_solve_form: mosek.solveform.dual,
+                                                mosek.dparam.optimizer_max_time: 100.0})
+
                 it = 0
 
                 pwr = []
@@ -862,7 +864,7 @@ if __name__ == '__main__':
                     prim_P_2norm[t][idx] = math.sqrt(prim_P_resid[t][idx])
                     dual_H_2norm[t][idx] = math.sqrt(dual_H_resid[t][idx])
                     prim_H_2norm[t][idx] = math.sqrt(prim_H_resid[t][idx])
-                    if prim_H_2norm[t][idx] >= 0.1 or prim_P_2norm[t][idx] >= 0.1:
+                    if prim_H_2norm[t][idx] >= 0.35 or prim_P_2norm[t][idx] >= 0.35:
                         cond = True
                         count[t] += 1
 
@@ -881,11 +883,9 @@ if __name__ == '__main__':
 
             iter += 1
 
-            if iter >= 60:
+            if iter >= 200:
                 cond = False
 
-        comp_end = time.perf_counter()
-        print(comp_end - comp_start)
         print('run complete')
 
         return demand_power, demand_heat, power, heat, grid_in, grid_out, storage_heatin, storage_heatout, \
@@ -1069,21 +1069,21 @@ if __name__ == '__main__':
             z_list_H_in[t] = z_list_H[t + 1].tolist()
             lagran_H_in[t] = lagran_H[t + 1].tolist()
 
-        # p_avg_in[num_opt_var - 1] = p_avg[num_opt_var - 1].tolist()
-        # z_list_P_in[num_opt_var - 1] = z_list_P[num_opt_var - 1].tolist()
-        # lagran_P_in[num_opt_var - 1] = lagran_P[num_opt_var - 1].tolist()
-        #
-        # h_avg_in[num_opt_var - 1] = h_avg[num_opt_var - 1].tolist()
-        # z_list_H_in[num_opt_var - 1] = z_list_H[num_opt_var - 1].tolist()
-        # lagran_H_in[num_opt_var - 1] = lagran_H[num_opt_var - 1].tolist()
-        #
-        p_avg_in[num_opt_var - 1] = p_avg[0].tolist()
-        z_list_P_in[num_opt_var - 1] = z_list_P[0].tolist()
-        lagran_P_in[num_opt_var - 1] = lagran_P[0].tolist()
+        p_avg_in[num_opt_var - 1] = p_avg[num_opt_var - 1].tolist()
+        z_list_P_in[num_opt_var - 1] = z_list_P[num_opt_var - 1].tolist()
+        lagran_P_in[num_opt_var - 1] = lagran_P[num_opt_var - 1].tolist()
 
-        h_avg_in[num_opt_var - 1] = h_avg[0].tolist()
-        z_list_H_in[num_opt_var - 1] = z_list_H[0].tolist()
-        lagran_H_in[num_opt_var - 1] = lagran_H[0].tolist()
+        h_avg_in[num_opt_var - 1] = h_avg[num_opt_var - 1].tolist()
+        z_list_H_in[num_opt_var - 1] = z_list_H[num_opt_var - 1].tolist()
+        lagran_H_in[num_opt_var - 1] = lagran_H[num_opt_var - 1].tolist()
+        #
+        # p_avg_in[num_opt_var - 1] = p_avg[0].tolist()
+        # z_list_P_in[num_opt_var - 1] = z_list_P[0].tolist()
+        # lagran_P_in[num_opt_var - 1] = lagran_P[0].tolist()
+        #
+        # h_avg_in[num_opt_var - 1] = h_avg[0].tolist()
+        # z_list_H_in[num_opt_var - 1] = z_list_H[0].tolist()
+        # lagran_H_in[num_opt_var - 1] = lagran_H[0].tolist()
 
         # p_avg_in[num_opt_var - 1] = np.array([0.0] * int(num_hubs * (num_hubs - 1))).tolist()
         # z_list_P_in[num_opt_var - 1] = np.array([0.0] * int(num_hubs * (num_hubs - 1))).tolist()
@@ -1094,6 +1094,8 @@ if __name__ == '__main__':
         # lagran_H_in[num_opt_var - 1] = np.array([0.0] * int(num_hubs * (num_hubs - 1))).tolist()
 
         print("wait")
+
+    comp_end = time.perf_counter()
 
     with xlsxwriter.Workbook('results_12res_diffeps.xlsx') as workbook:
 
@@ -1116,4 +1118,4 @@ if __name__ == '__main__':
                   date_info, time_info, num_hubs)
 
     print('complete and saved')
-
+    print(comp_end - comp_start)
